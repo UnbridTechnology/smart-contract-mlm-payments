@@ -11,6 +11,8 @@ contract MLMPayments is ReentrancyGuard, Ownable {
     event TransfersCompleted(address indexed token, uint256 totalTransferred);
     event NativeTransfersCompleted(uint256 totalTransferred);
 
+    constructor(address _initialOwner) Ownable(_initialOwner) {}
+
     /**
      * @dev Transfer multiple amounts of an ERC20 token to multiple recipients
      * @param erc20Token Address of the ERC20 token to transfer
@@ -19,11 +21,13 @@ contract MLMPayments is ReentrancyGuard, Ownable {
      */
     function transferERC20(
         address erc20Token,
+        address newUser,
         address[] memory recipients,
         uint256[] memory amounts
     ) public onlyOwner nonReentrant {
         require(recipients.length == amounts.length, "Arrays length mismatch");
         require(erc20Token != address(0), "Invalid token address");
+        require(newUser != address(0), "Invalid user address");
 
         IERC20 token = IERC20(erc20Token);
         uint256 totalAmount = 0;
@@ -33,28 +37,23 @@ contract MLMPayments is ReentrancyGuard, Ownable {
             totalAmount += amounts[i];
         }
 
-        // Transfer tokens from sender to contract first
-        require(
-            token.transferFrom(msg.sender, address(this), totalAmount),
-            "Initial token transfer failed"
-        );
-
-        uint256 totalTransferred = 0;
-
-        // Distribute tokens to recipients
+        // Transfer tokens to the specified recipients
         for (uint256 i = 0; i < recipients.length; i++) {
             require(
-                token.transfer(recipients[i], amounts[i]),
-                "Transfer to recipient failed"
+                token.transferFrom(
+                    newUser,
+                    recipients[i],
+                    amounts[i]
+                ),
+                "Commission transfer failed"
             );
-            totalTransferred += amounts[i];
         }
 
-        emit TransfersCompleted(erc20Token, totalTransferred);
+        emit TransfersCompleted(erc20Token, totalAmount);
     }
 
     /**
-     * @dev Transfer native currency (MATIC) to multiple recipients
+     * @dev Transfer native currency to multiple recipients
      * @param recipients Array of recipient addresses
      * @param amounts Array of amounts to transfer (in wei)
      */
@@ -82,12 +81,6 @@ contract MLMPayments is ReentrancyGuard, Ownable {
             totalTransferred += amounts[i];
         }
 
-        // Return any excess funds
-        if (msg.value > totalTransferred) {
-            (bool success, ) = msg.sender.call{value: msg.value - totalTransferred}("");
-            require(success, "Excess funds return failed");
-        }
-
         emit NativeTransfersCompleted(totalTransferred);
     }
 
@@ -96,8 +89,14 @@ contract MLMPayments is ReentrancyGuard, Ownable {
      * @param erc20Token Address of the ERC20 token to withdraw
      * @param amount Amount to withdraw
      */
-    function emergencyWithdrawERC20(address erc20Token, uint256 amount) public onlyOwner {
-        require(IERC20(erc20Token).transfer(owner(), amount), "Emergency withdrawal failed");
+    function emergencyWithdrawERC20(address erc20Token, uint256 amount)
+        public
+        onlyOwner
+    {
+        require(
+            IERC20(erc20Token).transfer(owner(), amount),
+            "Emergency withdrawal failed"
+        );
     }
 
     /**
